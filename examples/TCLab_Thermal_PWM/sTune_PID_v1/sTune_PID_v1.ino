@@ -6,11 +6,15 @@
   Open the serial plotter to view the graphical results.
   *****************************************************************/
 #include <sTune.h>
-#include <PID_v1.h>
+#include <PID_v2.h>
 
 // pins
-const uint8_t inputPin = 0;
-const uint8_t relayPin = 3;
+#define VOLTAGE_PIN A0
+#define R1 10000  // 26000  //3900 //30000 //33000 //36000 //39000
+#define R2 3300   // 10000 //1500 //10000 //11000 //12000 //13000
+#define CORRECTION 0.4
+#define ERROR_TRS 0.5
+#define VOLTAGE_TARGET 14.4
 
 // user settings
 uint32_t settleTimeSec = 10;
@@ -20,24 +24,24 @@ const float inputSpan = 150;
 const float outputSpan = 1000;
 float outputStart = 0;
 float outputStep = 300;
-float tempLimit = 90;
 uint8_t debounce = 1;
 
 // variables
-double input, output, setpoint = 50, kp, ki, kd; // PID_v1
-float Input, Output, Setpoint = 50, Kp, Ki, Kd; // sTune
+double input, output, kp, ki, kd; // PID_v2
+float Input, Output, Kp, Ki, Kd; // sTune
 
+double setpoint = VOLTAGE_TARGET;
 sTune tuner = sTune(&Input, &Output, tuner.ZN_PID, tuner.directIP, tuner.printOFF);
 PID myPID(&input, &output, &setpoint, 0, 0, 0, P_ON_M, DIRECT);
 
 void setup() {
-  analogReference(EXTERNAL); // 3.3V
-  pinMode(relayPin, OUTPUT);
-  Serial.begin(115200);
+  //analogReference(EXTERNAL); // 3.3V
+  //pinMode(relayPin, OUTPUT);
+  Serial.begin(9600);
   while (!Serial) delay(10);
   delay(3000);
   tuner.Configure(inputSpan, outputSpan, outputStart, outputStep, testTimeSec, settleTimeSec, samples);
-  tuner.SetEmergencyStop(tempLimit);
+  tuner.SetEmergencyStop(VOLTAGE_TARGET);
 }
 
 void loop() {
@@ -45,7 +49,8 @@ void loop() {
 
   switch (tuner.Run()) {
     case tuner.sample: // active once per sample during test
-      Input = analogRead(inputPin) * 0.322265625 - 50.0; // get degC (using 3.3v AREF)
+      voltage = analogRead(VOLTAGE_PIN) * (5.0 / 1023.0) * ((R1 + R2) / R2);
+      input = voltage - CORRECTION;
       tuner.plotter(Input, Output, Setpoint, 0.1f, 3); // output scale 0.1, plot every 3rd sample
       break;
 
@@ -59,10 +64,16 @@ void loop() {
       break;
 
     case tuner.runPid: // active once per sample after tunings
-      input = analogRead(inputPin) * 0.322265625 - 50.0; // get degC (using 3.3v AREF)
+      voltage = analogRead(VOLTAGE_PIN) * (5.0 / 1023.0) * ((R1 + R2) / R2);
+      input = voltage - CORRECTION;
       myPID.Compute();
       Input = input, Output = output;
       tuner.plotter(Input, Output, Setpoint, 0.1f, 3);
+      int powerPercentage = map(output, 0, 255, 0, 100);
+      printPWM(powerPercentage);
       break;
   }
+  
 }
+
+void printPWM(int pwm) { Serial.print("D0" + String(pwm)); }
